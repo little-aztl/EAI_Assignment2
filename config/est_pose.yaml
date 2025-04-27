@@ -1,4 +1,4 @@
-batch_size: 16
+batch_size: 32
 checkpoint: null
 device: cpu
 exp_name: my_exp
@@ -8,7 +8,7 @@ log_interval: 100
 max_iter: 10000
 model_hyperparams: {}
 model_type: est_pose
-num_workers: 8
+num_workers: 16
 obj_name: power_drill
 point_num: 1024
 robot: galbot

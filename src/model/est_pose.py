@@ -73,6 +73,9 @@ class EstPoseNet(nn.Module):
         rotation = prediction[:, :9].reshape(-1, 3, 3) # (B, 3, 3)
         translation = prediction[:, 9:] # (B, 3)
 
+        loss = self.transloss(translation, trans) * self.transloss_weight + self.rotloss(rotation, rot) * self.rotloss_weight
+        trans_error = torch.norm(translation - trans, dim=1).mean()
+
         U, _, Vh = torch.linalg.svd(rotation)
         det_u, det_vh = torch.linalg.det(U), torch.linalg.det(Vh)
         tmp = (det_u * det_vh)[:, torch.newaxis] # (B, 1)
@@ -83,9 +86,6 @@ class EstPoseNet(nn.Module):
         rotation = torch.matmul(U, tmp) # (B, 3, 3)
         rotation = torch.matmul(rotation, Vh) # (B, 3, 3)
 
-
-        loss = self.transloss(translation, trans) * self.transloss_weight + self.rotloss(rotation, rot) * self.rotloss_weight
-        trans_error = torch.norm(translation - trans, dim=1).mean()
         rot_error = torch.sum(torch.diagonal(torch.matmul(rotation, torch.transpose(rot, 1, 2)), dim1=-2, dim2=-1), dim=-1) # (B,)
         rot_error = (rot_error - 1) / 2 # (B,)
         rot_error = safe_acos(rot_error).mean()

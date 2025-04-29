@@ -1,13 +1,13 @@
-batch_size: 32
+batch_size: 48
 checkpoint: null
 device: cpu
-exp_name: my_exp
-learning_rate: 0.001
+exp_name: est_coord
+learning_rate: 0.0005
 learning_rate_min: 1.0e-08
 log_interval: 100
 max_iter: 10000
 model_hyperparams: {}
-model_type: est_pose
+model_type: est_coord
 num_workers: 12
 obj_name: power_drill
 point_num: 1024

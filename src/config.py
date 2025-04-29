@@ -17,6 +17,12 @@ DEFAULT_MODEL_HYPERPARAMS = {
             'rotation_weight': 0.5,
             'translation_weight': 0.5,
         }
+    },
+    "est_coord": {
+        "light_encoder_hidden_dim": 64,
+        "encoder_hidden_dims": [128, 1024],
+        'activation': 'ReLU',
+        'decoder_hidden_dims': [512, 256],
     }
 }
 

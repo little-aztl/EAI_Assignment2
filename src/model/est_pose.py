@@ -37,7 +37,7 @@ class EstPoseNet(nn.Module):
         self.rotloss = nn.MSELoss()
         self.rotloss_weight = config.model_hyperparams['loss']['rotation_weight']
 
-        self.helper_tensor = torch.tensor([1.0, 0, 0, 0, 1.0, 0, 0, 0])
+        self.helper_tensor = x
 
 
     def forward(
@@ -73,7 +73,9 @@ class EstPoseNet(nn.Module):
         rotation = prediction[:, :9].reshape(-1, 3, 3) # (B, 3, 3)
         translation = prediction[:, 9:] # (B, 3)
 
-        loss = self.transloss(translation, trans) * self.transloss_weight + self.rotloss(rotation, rot) * self.rotloss_weight
+        transloss = self.transloss(translation, trans)
+        rotloss = self.rotloss(rotation, rot)
+        loss = self.transloss_weight * transloss + self.rotloss_weight * rotloss
         trans_error = torch.norm(translation - trans, dim=1).mean()
 
         U, _, Vh = torch.linalg.svd(rotation)
@@ -92,6 +94,8 @@ class EstPoseNet(nn.Module):
 
         metric = dict(
             loss=loss,
+            trans_loss=transloss,
+            rot_loss=rotloss,
             # additional metrics you want to log
             trans_error=trans_error,
             rot_error=rot_error,

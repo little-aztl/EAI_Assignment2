@@ -1,6 +1,6 @@
-batch_size: 32
+batch_size: 48
 checkpoint: null
-device: cuda
+device: cpu
 exp_name: est_coord
 learning_rate: 0.0005
 learning_rate_min: 1.0e-08

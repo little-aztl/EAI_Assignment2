@@ -37,7 +37,7 @@ class EstPoseNet(nn.Module):
         self.rotloss = nn.MSELoss()
         self.rotloss_weight = config.model_hyperparams['loss']['rotation_weight']
 
-        self.helper_tensor = torch.tensor([1.0, 0, 0, 0, 1.0, 0, 0, 0])
+        self.helper_tensor = x
 
 
     def forward(

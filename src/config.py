@@ -2,7 +2,6 @@ from dataclasses import dataclass, field  # type: ignore
 from typing import Dict, List, Any
 import numpy as np
 import yaml
-from colorama import Fore, Style, Back
 
 # You can modify Config according to your need
 # if you add some non-hashable types like list or dict, you need to use field

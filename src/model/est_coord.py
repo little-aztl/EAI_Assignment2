@@ -132,7 +132,6 @@ class EstCoordNet(nn.Module):
 
         center_in_camera = torch.mean(pc, dim=1) # (B, 3)
         center_in_object = torch.mean(pred_coord, dim=1) # (B, 3)
-        pred_trans = center_in_camera - center_in_object # (B, 3)
 
         pc_in_camera = pc - center_in_camera[:, torch.newaxis, :] # (B, N, 3)
         pc_in_object = pred_coord - center_in_object[:, torch.newaxis, :] # (B, N, 3)
@@ -151,5 +150,10 @@ class EstCoordNet(nn.Module):
             ], dim=1).reshape(batch_size, 3, 3) # (B, 3, 3)
         ) # (B, 3, 3)
         pred_rotation = torch.matmul(pred_rotation, Vh) # (B, 3, 3)
+
+        pred_trans = center_in_camera - torch.matmul(
+            pred_rotation,
+            center_in_object[:, :, torch.newaxis] # (B, 3, 1)
+        ).squeeze(dim=2) # (B, 3)
 
         return pred_trans, pred_rotation

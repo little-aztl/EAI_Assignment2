@@ -23,6 +23,11 @@ DEFAULT_MODEL_HYPERPARAMS = {
         "encoder_hidden_dims": [128, 1024],
         'activation': 'ReLU',
         'decoder_hidden_dims': [512, 256],
+        "RANSAC": {
+            'inlier_thresh': 0.010,
+            "max_iter": 1000,
+            "n_samples": 4,
+        }
     }
 }
 

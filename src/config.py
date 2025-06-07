@@ -2,7 +2,6 @@ from dataclasses import dataclass, field  # type: ignore
 from typing import Dict, List, Any
 import numpy as np
 import yaml
-from colorama import Fore, Style, Back
 
 # You can modify Config according to your need
 # if you add some non-hashable types like list or dict, you need to use field
@@ -23,6 +22,11 @@ DEFAULT_MODEL_HYPERPARAMS = {
         "encoder_hidden_dims": [128, 1024],
         'activation': 'ReLU',
         'decoder_hidden_dims': [512, 256],
+        "RANSAC": {
+            'inlier_thresh': 0.010,
+            "max_iter": 1000,
+            "n_samples": 4,
+        }
     }
 }
 

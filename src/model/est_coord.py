@@ -49,6 +49,8 @@ class EstCoordNet(nn.Module):
 
         self.helper_tensor = torch.tensor([1.0, 0, 0, 0, 1.0, 0, 0, 0])
 
+        self.ransac_config = config.model_hyperparams['RANSAC']
+
 
     def forward(
         self, pc: torch.Tensor, coord: torch.Tensor, **kwargs
@@ -130,26 +132,86 @@ class EstCoordNet(nn.Module):
 
         pred_coord = self.decoder(point_feature) # (B, N, 3)
 
-        center_in_camera = torch.mean(pc, dim=1) # (B, 3)
-        center_in_object = torch.mean(pred_coord, dim=1) # (B, 3)
-        pred_trans = center_in_camera - center_in_object # (B, 3)
+        def fitting(goal_pc:torch.Tensor, cur_pc:torch.Tensor):
+            '''
+            goal_pc: (B, n_samples, 3)
+            cur_pc: (B, n_samples, 3)
+            '''
+            goal_center = goal_pc.mean(dim=1) # (B, 3)
+            cur_center = cur_pc.mean(dim=1) # (B, 3)
 
-        pc_in_camera = pc - center_in_camera[:, torch.newaxis, :] # (B, N, 3)
-        pc_in_object = pred_coord - center_in_object[:, torch.newaxis, :] # (B, N, 3)
 
-        tmp = torch.matmul(
-            pc_in_camera.transpose(1, 2), # (B, 3, N)
-            pc_in_object # (B, N, 3)
-        ) # (B, 3, 3)
-        Q, S, Vh = torch.linalg.svd(tmp) # Q: (B, 3, 3), S: (B, 3), Vh: (B, 3, 3)
-        det_u, det_vh = torch.linalg.det(Q), torch.linalg.det(Vh) # det_u: (B,), det_vh: (B,)
-        pred_rotation = torch.matmul(
-            Q,
-            torch.cat([
-                self.helper_tensor[torch.newaxis].to(pc.device).expand(batch_size, -1), # (B, 8)
-                (det_u * det_vh)[:, torch.newaxis] # (B, 1)
-            ], dim=1).reshape(batch_size, 3, 3) # (B, 3, 3)
-        ) # (B, 3, 3)
-        pred_rotation = torch.matmul(pred_rotation, Vh) # (B, 3, 3)
+            normalized_goal_pc = goal_pc - goal_center[:, torch.newaxis, :] # (B, n_samples, 3)
+            normalized_cur_pc = cur_pc - cur_center[:, torch.newaxis, :] # (B, n_samples, 3)
 
-        return pred_trans, pred_rotation
+            tmp = torch.matmul(
+                normalized_goal_pc.transpose(1, 2), # (B, 3, n_samples)
+                normalized_cur_pc # (B, n_samples, 3)
+            ) # (B, 3, 3)
+            U, _, Vh = torch.linalg.svd(tmp) # U: (B, 3, 3), Vh: (B, 3, 3)
+            det_u, det_v = torch.linalg.det(U), torch.linalg.det(Vh) # det_u: (B,) det_v: (B,)
+            det = det_u * det_v # (B,)
+            Vh[:, 2, :] = Vh[:, 2, :] * det[:, torch.newaxis]
+
+            pred_rotation = torch.matmul(U, Vh) # (B, 3, 3)
+            pred_translation = goal_center - torch.matmul(pred_rotation, cur_center[:, :, torch.newaxis]).squeeze(dim=2) # (B, 3)
+
+            return pred_rotation, pred_translation
+
+        n_samples = self.ransac_config['n_samples']
+        max_iter = self.ransac_config['max_iter']
+
+        selected_indices = torch.randint(
+            low=0, high=num_points,
+            size=(batch_size, max_iter, n_samples),
+            device=pc.device
+        ) # (B, max_iter, n_samples)
+
+        selected_goal_pc = torch.gather(
+            input=pc[:, torch.newaxis].expand(-1, max_iter, -1, -1), # (B, max_iter, N, 3)
+            dim=2,
+            index=selected_indices[:, :, :, torch.newaxis].expand(-1, -1, -1, 3) # (B, max_iter, n_samples, 3)
+        ).reshape(-1, n_samples, 3) # (B * max_iter, n_samples, 3)
+        selected_cur_pc = torch.gather(
+            input=pred_coord[:, torch.newaxis].expand(-1, max_iter, -1, -1), # (B, max_iter, N, 3)
+            dim=2,
+            index=selected_indices[:, :, :, torch.newaxis].expand(-1, -1, -1, 3) # (B, max_iter, n_samples, 3)
+        ).reshape(-1, n_samples, 3) # (B * max_iter, n_samples, 3)
+
+        pred_rotations, pred_translations = fitting(selected_goal_pc, selected_cur_pc) # pred_rotation: (B * max_iter, 3, 3), pred_translation: (B * max_iter, 3)
+
+        pred_rotations = pred_rotations.reshape(batch_size, max_iter, 3, 3) # (B, max_iter, 3, 3)
+        pred_translations = pred_translations.reshape(batch_size, max_iter, 3) # (B, max_iter, 3)
+
+        transformed_cur_pc = torch.matmul(
+            pred_rotations[:, :, torch.newaxis, :, :], # (B, max_iter, 1, 3, 3)
+            pred_coord[:, torch.newaxis, :, :, torch.newaxis] # (B, 1, N, 3, 1)
+        ).squeeze(dim=-1) + pred_translations[:, :, torch.newaxis, :] # (B, max_iter, N, 3)
+        distance_error = torch.linalg.norm(
+            pc[:, torch.newaxis, :, :] - transformed_cur_pc, # (B, max_iter, N, 3)
+            dim=3
+        ) # (B, max_iter, N)
+        is_inlier = distance_error < self.ransac_config['inlier_thresh'] # (B, max_iter, N)
+        inliers_count = is_inlier.sum(dim=2) # (B, max_iter)
+        best_iter = inliers_count.argmax(dim=1) # (B,)
+
+        is_inlier = torch.gather(
+            input=is_inlier, # (B, max_iter, N)
+            dim=1,
+            index=best_iter[:, torch.newaxis, torch.newaxis].expand(-1, -1, num_points) # (B, 1, N)
+        ).squeeze(dim=1) # (B, N)
+
+        ret_rotation, ret_translation = [], []
+        for b in range(batch_size):
+            selected_goal_pc = pc[b, is_inlier[b]] # (n_inliers, 3)
+            selected_cur_pc = pred_coord[b, is_inlier[b]] # (n_inliers, 3)
+
+
+            pred_rotation, pred_translation = fitting(selected_goal_pc[torch.newaxis], selected_cur_pc[torch.newaxis]) # pred_rotation: (3, 3), pred_translation: (3,)
+            ret_rotation.append(pred_rotation.squeeze(dim=0))
+            ret_translation.append(pred_translation.squeeze(dim=0))
+
+        ret_rotation = torch.stack(ret_rotation, dim=0) # (B, 3, 3)
+        ret_translation = torch.stack(ret_translation, dim=0) # (B, 3)
+        return ret_translation, ret_rotation
+

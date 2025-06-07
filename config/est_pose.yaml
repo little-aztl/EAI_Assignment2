@@ -1,12 +1,22 @@
-batch_size: 32
+batch_size: 48
 checkpoint: null
 device: cpu
-exp_name: my_exp
+exp_name: est_pose_for_final
 learning_rate: 0.001
 learning_rate_min: 1.0e-08
 log_interval: 100
-max_iter: 10000
-model_hyperparams: {}
+max_iter: 20000
+model_hyperparams:
+  activation: ReLU
+  decoder_hidden_dims:
+  - 256
+  encoder_hidden_dims:
+  - 64
+  - 256
+  - 512
+  loss:
+    rotation_weight: 0.5
+    translation_weight: 0.5
 model_type: est_pose
 num_workers: 12
 obj_name: power_drill

@@ -131,6 +131,7 @@ from tqdm import tqdm
 import torch
 import cv2
 from torch.utils.data import Dataset, DataLoader
+from multiprocessing import Pool
 
 
 from .data_utils import depth2pcd, load_depth, get_workspace_mask, pcd_camera2world, pcd_world2object
@@ -140,48 +141,55 @@ NUM_POINTS = 1024
 def load_npy(file_path: str) -> np.ndarray:
     return np.load(file_path)
 
+def load_data_item(data_index, entry: Path) -> dict:
+    print(f"Loading data from {entry} for index {data_index}")
+    camera_pose = load_npy((entry / "camera_pose.npy").as_posix())
+    driller_pose = load_npy((entry / "driller_pose.npy").as_posix())
+    camera_intrinsic = load_npy((entry / "camera_intrinsic.npy").as_posix())
+
+    depth_array = load_depth((entry / "depth.png").as_posix())
+    pcd_camera = depth2pcd(depth_array, camera_intrinsic)
+
+    pcd_world = pcd_camera2world(camera_pose=camera_pose, pcd_camera=pcd_camera)
+    pcd_object = pcd_world2object(pcd_world=pcd_world, object_pose=driller_pose)
+    pc_mask = get_workspace_mask(pcd_world)
+    sel_pc_idx = np.random.randint(0, np.sum(pc_mask), NUM_POINTS)
+
+    pcd_camera_masked = pcd_camera[pc_mask][sel_pc_idx]
+    pcd_object_masked = pcd_object[pc_mask][sel_pc_idx]
+
+    rel_obj_pose = np.linalg.inv(camera_pose) @ driller_pose
+
+    cur_data_dict = dict(
+        pc=pcd_camera_masked.astype(np.float32),
+        coord=pcd_object_masked.astype(np.float32),
+        trans=rel_obj_pose[:3, 3].astype(np.float32),
+        rot=rel_obj_pose[:3, :3].astype(np.float32),
+        camera_pose=camera_pose.astype(np.float32),
+        obj_pose_in_world=driller_pose.astype(np.float32),
+    )
+    return cur_data_dict
+
 class DrillerPoseDataset(Dataset):
     def __init__(self, data_dir:str):
         super(DrillerPoseDataset, self).__init__()
         self.data_dir = Path(data_dir)
         self.entry_list = sorted([entry for entry in self.data_dir.iterdir() if entry.is_dir()])
+        self._load_data()
 
 
+    def _load_data(self) -> dict:
+        self.data_list = []
+        with Pool(processes=12) as pool:
+            self.data_list = pool.starmap(
+                load_data_item, enumerate(self.entry_list)
+            )
 
-    def __getitem__(self, index:int) -> dict:
-
-        entry = self.entry_list[index]
-
-        camera_pose = load_npy((entry / "camera_pose.npy").as_posix())
-        driller_pose = load_npy((entry / "driller_pose.npy").as_posix())
-        camera_intrinsic = load_npy((entry / "camera_intrinsic.npy").as_posix())
-
-        depth_array = load_depth((entry / "depth.png").as_posix())
-        pcd_camera = depth2pcd(depth_array, camera_intrinsic)
-
-        pcd_world = pcd_camera2world(camera_pose=camera_pose, pcd_camera=pcd_camera)
-        pcd_object = pcd_world2object(pcd_world=pcd_world, object_pose=driller_pose)
-        pc_mask = get_workspace_mask(pcd_world)
-        sel_pc_idx = np.random.randint(0, np.sum(pc_mask), NUM_POINTS)
-
-        pcd_camera_masked = pcd_camera[pc_mask][sel_pc_idx]
-        pcd_object_masked = pcd_object[pc_mask][sel_pc_idx]
-
-        rel_obj_pose = np.linalg.inv(camera_pose) @ driller_pose
-
-        cur_data_dict = dict(
-            pc=pcd_camera_masked.astype(np.float32),
-            coord=pcd_object_masked.astype(np.float32),
-            trans=rel_obj_pose[:3, 3].astype(np.float32),
-            rot=rel_obj_pose[:3, :3].astype(np.float32),
-            camera_pose=camera_pose.astype(np.float32),
-            obj_pose_in_world=driller_pose.astype(np.float32),
-        )
-
-        return cur_data_dict
+    def __getitem__(self, index: int) -> dict:
+        return self.data_list[index]
 
     def __len__(self):
-        return len(self.entry_list)
+        return len(self.data_list)
 
 
 class Loader:

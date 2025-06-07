@@ -10,7 +10,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from src.config import Config
 from src.logger import Logger
 from src.utils import set_seed
-from src.data import Loader, PoseDataset
+from src.data import Loader, DrillerPoseDataset
 from src.model import get_model
 
 
@@ -58,8 +58,8 @@ def main():
     device = torch.device(config.device)
 
     # loading datasets
-    train_dataset = PoseDataset(config, mode="train", scale=100)
-    val_dataset = PoseDataset(config, mode="val", scale=100)
+    train_dataset = DrillerPoseDataset("data/power_drill/train")
+    val_dataset = DrillerPoseDataset("data/power_drill/val")
     # This loader will load data infinitely
     train_loader = Loader(
         DataLoader(
